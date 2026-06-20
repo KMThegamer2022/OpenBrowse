@@ -22,6 +22,10 @@ OpenBrowse is a desktop web browser written in Python with Qt WebEngine. It give
 
 ## Setup
 
+OpenBrowse can install its required Python packages for you automatically when you launch it with `launch_openbrowse.bat` or `OpenBrowse.vbs`.
+
+If you prefer to set everything up manually, use:
+
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
@@ -35,7 +39,7 @@ python -m pip install -r requirements.txt
 python browser.py
 ```
 
-For normal Windows launching without VS Code, double-click [launch_openbrowse.bat] or [OpenBrowse.vbs]. They automatically create the project's `.venv` if needed and install packages from `requirements.txt` when PyQt is missing.
+For normal Windows launching without VS Code, double-click [launch_openbrowse.bat](launch_openbrowse.bat) or [OpenBrowse.vbs](OpenBrowse.vbs). They automatically create the project's `.venv` if needed and install packages from `requirements.txt` when PyQt is missing, so most people do not need to run the manual setup steps.
 
 ## Keyboard shortcuts
 

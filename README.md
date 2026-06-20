@@ -35,7 +35,7 @@ python -m pip install -r requirements.txt
 python browser.py
 ```
 
-For normal Windows launching without VS Code, double-click [launch_openbrowse.bat](C:\Users\KMTG\OneDrive\project\pythonbrowser - OpenBrowse\pythonbrowser\launch_openbrowse.bat) or [OpenBrowse.vbs](C:\Users\KMTG\OneDrive\project\pythonbrowser - OpenBrowse\pythonbrowser\OpenBrowse.vbs). They automatically create the project's `.venv` if needed and install packages from `requirements.txt` when PyQt is missing.
+For normal Windows launching without VS Code, double-click [launch_openbrowse.bat] or [OpenBrowse.vbs]. They automatically create the project's `.venv` if needed and install packages from `requirements.txt` when PyQt is missing.
 
 ## Keyboard shortcuts
 

@@ -1,0 +1,84 @@
+name: Diagnose WebView2 include
+
+on: workflow_dispatch
+
+jobs:
+  probe:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: NuGet/setup-nuget@v2
+      - name: Restore WebView2
+        shell: pwsh
+        run: |
+          nuget install Microsoft.Web.WebView2 -Version 1.0.2903.40 -OutputDirectory wv2 -NonInteractive
+      - name: Probe macro state
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path probe | Out-Null
+          @'
+          #include <windows.h>
+          #include <cstdio>
+
+          #ifdef interface
+          #  pragma message("PROBE: interface IS defined")
+          #endif
+          #ifdef CINTERFACE
+          #  pragma message("PROBE: CINTERFACE IS defined")
+          #endif
+          #ifndef __cplusplus
+          #  pragma message("PROBE: __cplusplus NOT defined - compiling as C")
+          #endif
+
+          // Does the keyword survive on its own?
+          typedef interface IProbe1 IProbe1;
+          #pragma message("PROBE: typedef interface OK")
+
+          int main() {
+            printf("cplusplus=%ld\n", (long)__cplusplus);
+          #ifdef interface
+            printf("interface defined\n");
+          #else
+            printf("interface NOT defined\n");
+          #endif
+          #ifdef CINTERFACE
+            printf("CINTERFACE defined\n");
+          #else
+            printf("CINTERFACE not defined\n");
+          #endif
+            printf("probe ok\n");
+            return 0;
+          }
+          '@ | Set-Content -Path probe/probe.cpp -Encoding UTF8
+
+          # Variant A: plain windows.h + WebView2.h
+          @'
+          #include <windows.h>
+          #include <WebView2.h>
+          int probe_main() { return 0; }
+          '@ | Set-Content -Path probe/with_wv2.cpp -Encoding UTF8
+
+          Write-Host "=== MSVC version ==="
+          cl 2>&1 | Select-Object -First 2
+
+          Write-Host "=== Probe A: windows.h only, lean macros NOT set ==="
+          cl /nologo /EHsc /std:c++17 probe/probe.cpp /Fe:probe/probeA.exe
+          Write-Host "exit=$LASTEXITCODE"
+
+          Write-Host "=== Probe B: windows.h + WebView2.h, lean macros NOT set ==="
+          cl /nologo /EHsc /std:c++17 /I wv2/Microsoft.Web.WebView2.1.0.2903.40/build/native/include probe/with_wv2.cpp /c
+          Write-Host "exit=$LASTEXITCODE"
+
+          Write-Host "=== Probe C: same as B but with WIN32_LEAN_AND_MEAN ==="
+          cl /nologo /EHsc /std:c++17 /D WIN32_LEAN_AND_MEAN /I wv2/Microsoft.Web.WebView2.1.0.2903.40/build/native/include probe/with_wv2.cpp /c
+          Write-Host "exit=$LASTEXITCODE"
+
+          Write-Host "=== Probe D: windows.h + wrl.h + WebView2.h ==="
+          @'
+          #include <windows.h>
+          #include <wrl.h>
+          #include <WebView2.h>
+          int probe_main2() { return 0; }
+          '@ | Set-Content -Path probe/with_wrl.cpp -Encoding UTF8
+          cl /nologo /EHsc /std:c++17 /I wv2/Microsoft.Web.WebView2.1.0.2903.40/build/native/include probe/with_wrl.cpp /c
+          Write-Host "exit=$LASTEXITCODE"

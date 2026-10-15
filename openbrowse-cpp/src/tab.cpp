@@ -14,6 +14,9 @@ namespace {
 
 constexpr wchar_t kTabClassName[] = L"OpenBrowseTabHost";
 
+// WebView2 hands favicons back as PNG, so the icon is created at this size.
+constexpr int kIconSize = 16;
+
 LRESULT CALLBACK tabHostProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
   return DefWindowProcW(hwnd, message, wParam, lParam);
 }
@@ -398,8 +401,8 @@ void Tab::wireEvents(const std::shared_ptr<TabState>& state) {
                         if (!readStreamToVector(result, &png)) return S_OK;
 
                         HICON icon = CreateIconFromResourceEx(
-                            png.data(), static_cast<int>(png.size()), TRUE, 0x00030000,
-                            IMAGE_ICON, 0);
+                            png.data(), static_cast<DWORD>(png.size()), TRUE, 0x00030000,
+                            kIconSize, kIconSize, 0);
                         if (icon == nullptr) return S_OK;
                         state->owner->onTabIconChanged(state->tab, icon);
                         return S_OK;

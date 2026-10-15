@@ -91,6 +91,8 @@ class BrowserWindow {
   };
   bool layoutTabs(std::vector<TabLayout>* out) const;
 
+  static void registerTabStripClass();
+
   void buildMenu();
   void createControls();
   void layoutControls();

@@ -894,7 +894,7 @@ void BrowserWindow::onDownloadCompleted(ICoreWebView2DownloadOperation* operatio
 // ---------------------------------------------------------------------------
 
 // The tab strip is an ordinary child window painted by tabStripProc.
-static void registerTabStripClass() {
+void BrowserWindow::registerTabStripClass() {
   static bool registered = false;
   if (registered) return;
   WNDCLASSEXW wc{};

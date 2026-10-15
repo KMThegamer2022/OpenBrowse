@@ -13,19 +13,26 @@ namespace ob {
 namespace {
 
 constexpr wchar_t kWindowClassName[] = L"OpenBrowseMainWindow";
+constexpr wchar_t kTabStripClassName[] = L"OpenBrowseTabStrip";
 constexpr UINT_PTR kSubclassId = 1;
 
 constexpr int kNavHeight = 30;
-constexpr int kTabStripHeight = 30;
+constexpr int kTabStripHeight = 32;
 constexpr int kStatusHeight = 22;
 constexpr int kGap = 4;
 constexpr int kButtonWidth = 74;
 constexpr int kNewTabWidth = 80;
 
-// Close button hit area in the owner-drawn tab strip, matching the painter.
+// The tab strip is drawn by hand rather than with WC_TABCONTROL, so its
+// geometry lives here and is shared by the painter and the hit test.
+constexpr int kTabMinWidth = 90;
+constexpr int kTabMaxWidth = 210;
+constexpr int kTabIconSize = 16;
+constexpr int kTabIconGap = 6;
+constexpr int kTabPadLeft = 8;
+constexpr int kTabPadRight = 8;
 constexpr int kTabCloseBox = 16;
-constexpr int kTabPadLeft = 10;
-constexpr int kTabPadRight = 26;  // room for the close box
+constexpr int kTabCloseMargin = 4;
 
 void enableItem(HMENU menu, UINT command, bool enabled) {
   if (menu != nullptr) {
@@ -163,20 +170,15 @@ void BrowserWindow::createControls() {
   SetWindowSubclass(addressBar_, &BrowserWindow::addressBarProc, kSubclassId,
                      reinterpret_cast<DWORD_PTR>(this));
 
-  tabStrip_ = CreateWindowExW(0, WC_TABCONTROLW, L"", WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS |
-                                                               TCS_TABS | TCS_OWNERDRAWFIXED,
+  registerTabStripClass();
+
+  tabStrip_ = CreateWindowExW(0, kTabStripClassName, L"", WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
                               0, 0, 0, 0, hwnd_, reinterpret_cast<HMENU>(kIdTabStrip), instance_,
                               nullptr);
-  SetWindowSubclass(tabStrip_, &BrowserWindow::tabStripProc, kSubclassId,
-                    reinterpret_cast<DWORD_PTR>(this));
+  SetWindowLongPtrW(tabStrip_, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
 
   statusLabel_ = CreateWindowExW(0, L"STATIC", L"Ready", WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0, 0,
                                  0, hwnd_, nullptr, instance_, nullptr);
-
-  tabImageList_ = ImageList_Create(16, 16, ILC_COLOR32 | ILC_MASK, 16, 8);
-  if (tabImageList_ && tabStrip_) {
-    TabStrip_SetImageList(tabStrip_, tabImageList_.Get());
-  }
 }
 
 void BrowserWindow::layoutControls() {
@@ -280,20 +282,14 @@ int BrowserWindow::indexOfTab(Tab* tab) const {
   return -1;
 }
 
-int BrowserWindow::currentIndex() const {
-  return tabStrip_ ? TabStrip_GetCurSel(tabStrip_) : -1;
-}
-
 Tab* BrowserWindow::currentTab() const {
-  const int index = currentIndex();
-  if (index < 0 || index >= static_cast<int>(tabs_.size())) return nullptr;
-  return tabs_[index].get();
+  if (activeTab_ < 0 || activeTab_ >= static_cast<int>(tabs_.size())) return nullptr;
+  return tabs_[static_cast<size_t>(activeTab_)].get();
 }
 
 void BrowserWindow::setCurrentIndex(int index) {
-  if (tabStrip_ == nullptr) return;
   if (index < 0 || index >= static_cast<int>(tabs_.size())) return;
-  TabStrip_SetCurSel(tabStrip_, index);
+  activeTab_ = index;
   showCurrentTab();
 }
 
@@ -360,53 +356,13 @@ void BrowserWindow::updateNavigationButtons() {
 }
 
 void BrowserWindow::updateTabStrip() {
-  if (tabStrip_ == nullptr) return;
-
-  const int previous = currentIndex();
-
-  TabStrip_DeleteAllItems(tabStrip_);
-  if (tabIcons_.size() != tabs_.size()) tabIcons_.assign(tabs_.size(), nullptr);
-
-  for (size_t i = 0; i < tabs_.size(); ++i) {
-    const Tab* tab = tabs_[i].get();
-    const std::string text =
-        tab->kind() == TabKind::Settings ? std::string("Settings") : tab->label();
-
-    std::wstring label = widen(text.empty() ? std::string("New Tab") : text);
-
-    TCITEMW item{};
-    item.mask = TCIF_TEXT | TCIFIMAGE;
-    item.iImage = -1;
-    // TCITEMW::pszText is a writable LPWSTR, so hand it a mutable buffer.
-    std::vector<wchar_t> labelBuffer(label.begin(), label.end());
-    labelBuffer.push_back(L'\0');
-    item.pszText = labelBuffer.data();
-    TabStrip_InsertItem(tabStrip_, static_cast<int>(i), &item);
-  }
+  if (tabIcons_.size() != tabs_.size()) tabIcons_.resize(tabs_.size(), nullptr);
 
   const int count = static_cast<int>(tabs_.size());
-  if (count > 0) {
-    TabStrip_SetCurSel(tabStrip_, (previous >= 0 && previous < count) ? previous : count - 1);
-  }
+  if (activeTab_ < 0 || activeTab_ >= count) activeTab_ = count > 0 ? count - 1 : -1;
 
-  // Re-inserting the items clears their image indices, so restore the icons.
-  rebuildTabIcons();
+  if (tabStrip_ != nullptr) InvalidateRect(tabStrip_, nullptr, FALSE);
   updateNavigationButtons();
-}
-
-void BrowserWindow::rebuildTabIcons() {
-  if (tabImageList_ == nullptr) return;
-  ImageList_RemoveAll(tabImageList_.Get());
-  for (size_t i = 0; i < tabIcons_.size(); ++i) {
-    int index = -1;
-    if (tabIcons_[i] != nullptr) {
-      index = ImageList_Add(tabImageList_.Get(), tabIcons_[i], nullptr, 0);
-    }
-    TCITEMW item{};
-    item.mask = TCIFIMAGE;
-    item.iImage = index;
-    TabStrip_SetItem(tabStrip_, static_cast<int>(i), &item);
-  }
 }
 
 void BrowserWindow::updateWindowTitle() {
@@ -658,7 +614,7 @@ void BrowserWindow::onTabIconChanged(Tab* tab, HICON icon) {
   }
   if (tabIcons_[index] != nullptr) DestroyIcon(tabIcons_[index]);
   tabIcons_[index] = icon;
-  rebuildTabIcons();
+  if (tabStrip_ != nullptr) InvalidateRect(tabStrip_, nullptr, FALSE);
 }
 
 void BrowserWindow::onTabNavigationStarted(Tab* tab) {
@@ -937,47 +893,160 @@ void BrowserWindow::onDownloadCompleted(ICoreWebView2DownloadOperation* operatio
 // Tab strip subclass: owner draw, click to select, click the box to close
 // ---------------------------------------------------------------------------
 
-LRESULT CALLBACK BrowserWindow::tabStripProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
-                                            UINT_PTR id, DWORD_PTR refData) {
-  BrowserWindow* self = reinterpret_cast<BrowserWindow*>(refData);
-  if (self == nullptr) return DefSubclassProc(hwnd, message, wParam, lParam);
+// The tab strip is an ordinary child window painted by tabStripProc.
+static void registerTabStripClass() {
+  static bool registered = false;
+  if (registered) return;
+  WNDCLASSEXW wc{};
+  wc.cbSize = sizeof(wc);
+  wc.style = CS_HREDRAW | CS_VREDRAW;
+  wc.lpfnWndProc = &BrowserWindow::tabStripProc;
+  wc.hInstance = GetModuleHandleW(nullptr);
+  wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+  wc.hbrBackground = nullptr;
+  wc.lpszClassName = kTabStripClassName;
+  RegisterClassExW(&wc);
+  registered = true;
+}
+
+bool BrowserWindow::layoutTabs(std::vector<TabLayout>* out) const {
+  out->clear();
+  RECT client{};
+  if (tabStrip_ == nullptr || !GetClientRect(tabStrip_, &client)) return false;
+
+  const int available = client.right - client.left;
+  if (available <= 0 || tabs_.empty()) return false;
+
+  const int count = static_cast<int>(tabs_.size());
+  int width = available / count;
+  width = std::clamp(width, kTabMinWidth, kTabMaxWidth);
+
+  int x = 0;
+  for (int i = 0; i < count; ++i) {
+    TabLayout layout;
+    layout.bounds.left = x;
+    layout.bounds.top = 0;
+    layout.bounds.right = x + width;
+    layout.bounds.bottom = client.bottom;
+
+    layout.closeBox.left = layout.bounds.right - kTabCloseBox - kTabCloseMargin;
+    layout.closeBox.right = layout.bounds.right - kTabCloseMargin;
+    layout.closeBox.top = (client.bottom - kTabCloseBox) / 2;
+    layout.closeBox.bottom = layout.closeBox.top + kTabCloseBox;
+
+    out->push_back(layout);
+    x += width;
+  }
+  return true;
+}
+
+LRESULT CALLBACK BrowserWindow::tabStripProc(HWND hwnd, UINT message, WPARAM wParam,
+                                             LPARAM lParam) {
+  BrowserWindow* self = reinterpret_cast<BrowserWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+  if (self == nullptr) return DefWindowProcW(hwnd, message, wParam, lParam);
 
   switch (message) {
-    case WM_LBUTTONDOWN: {
-      POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-      const int count = TabStrip_GetItemCount(hwnd);
+    case WM_ERASEBKGND:
+      return 1;
 
-      // Topmost visible item first, since tabs can overlap in compact layouts.
-      for (int i = 0; i < count; ++i) {
-        RECT itemRect{};
-        if (!TabStrip_GetItemRect(hwnd, i, &itemRect)) continue;
-        POINT local = point;
-        ScreenToClient(hwnd, &local);
-        if (!PtInRect(&itemRect, point)) continue;
+    case WM_PAINT: {
+      PAINTSTRUCT ps{};
+      HDC dc = BeginPaint(hwnd, &ps);
+      RECT client{};
+      GetClientRect(hwnd, &client);
 
-        const int closeLeft = itemRect.right - kTabCloseBox - kGap;
-        RECT closeRect{closeLeft, itemRect.top, itemRect.right - kGap, itemRect.bottom};
-        if (PtInRect(&closeRect, point)) {
-          self->closeTabAt(i);
-          return 0;
-        }
-        self->setCurrentIndex(i);
-        return 0;
+      HBRUSH background = CreateSolidBrush(RGB(236, 236, 236));
+      if (background) {
+        FillRect(dc, &client, background);
+        DeleteObject(background);
       }
+
+      std::vector<TabLayout> layouts;
+      self->layoutTabs(&layouts);
+
+      const size_t count = std::min(layouts.size(), self->tabs_.size());
+      for (size_t i = 0; i < count; ++i) {
+        const bool active = static_cast<int>(i) == self->activeTab_;
+        const RECT& rect = layouts[i].bounds;
+
+        HBRUSH fill =
+            CreateSolidBrush(active ? RGB(255, 255, 255) : RGB(228, 228, 228));
+        if (fill) {
+          FillRect(dc, &rect, fill);
+          DeleteObject(fill);
+        }
+
+        if (active) {
+          RECT accent = rect;
+          accent.bottom = accent.top + 2;
+          HBRUSH bar = CreateSolidBrush(RGB(31, 136, 61));
+          if (bar) {
+            FillRect(dc, &accent, bar);
+            DeleteObject(bar);
+          }
+        }
+
+        int textLeft = rect.left + kTabPadLeft;
+        if (i < self->tabIcons_.size() && self->tabIcons_[i] != nullptr) {
+          const int iconTop = (rect.bottom - rect.top - kTabIconSize) / 2;
+          DrawIconEx(dc, textLeft, iconTop, self->tabIcons_[i], kTabIconSize, kTabIconSize, 0,
+                     nullptr, DI_NORMAL);
+          textLeft += kTabIconSize + kTabIconGap;
+        }
+
+        RECT textRect = rect;
+        textRect.left = textLeft;
+        textRect.right = layouts[i].closeBox.left - 2;
+
+        const Tab* tab = self->tabs_[i].get();
+        const std::string raw = tab->kind() == TabKind::Settings ? std::string("Settings")
+                                                                 : tab->label();
+        const std::wstring label = widen(raw.empty() ? std::string("New Tab") : raw);
+
+        DrawTextW(dc, label.c_str(), -1, &textRect,
+                  DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+
+        // Close box: an X on the active tab, a dash on the others.
+        const RECT& close = layouts[i].closeBox;
+        HPEN pen = CreatePen(PS_SOLID, 1, RGB(96, 96, 96));
+        HGDIOBJ oldPen = SelectObject(dc, pen);
+        if (active) {
+          const int midX = (close.left + close.right) / 2;
+          const int midY = (close.top + close.bottom) / 2;
+          MoveToEx(dc, midX - 3, midY - 3, nullptr);
+          LineTo(dc, midX + 3, midY + 3);
+          MoveToEx(dc, midX + 3, midY - 3, nullptr);
+          LineTo(dc, midX - 3, midY + 3);
+        } else {
+          const int midY = (close.top + close.bottom) / 2;
+          MoveToEx(dc, close.left + 2, midY, nullptr);
+          LineTo(dc, close.right - 2, midY);
+        }
+        SelectObject(dc, oldPen);
+        DeleteObject(pen);
+      }
+
+      EndPaint(hwnd, &ps);
       return 0;
     }
 
+    case WM_LBUTTONDOWN:
     case WM_LBUTTONDBLCLK: {
       POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-      const int count = TabStrip_GetItemCount(hwnd);
-      for (int i = 0; i < count; ++i) {
-        RECT itemRect{};
-        if (!TabStrip_GetItemRect(hwnd, i, &itemRect)) continue;
-        if (PtInRect(&itemRect, point)) {
-          self->setCurrentIndex(i);
+      std::vector<TabLayout> layouts;
+      if (!self->layoutTabs(&layouts)) return 0;
+
+      for (size_t i = 0; i < layouts.size(); ++i) {
+        if (!PtInRect(&layouts[i].bounds, point)) continue;
+        if (message == WM_LBUTTONDOWN && PtInRect(&layouts[i].closeBox, point)) {
+          self->closeTabAt(static_cast<int>(i));
+        } else if (message == WM_LBUTTONDBLCLK) {
+          self->setCurrentIndex(static_cast<int>(i));
           self->executeCommand(kCmdNewTab);
-          return 0;
+        } else {
+          self->setCurrentIndex(static_cast<int>(i));
         }
+        return 0;
       }
       return 0;
     }
@@ -990,25 +1059,31 @@ LRESULT CALLBACK BrowserWindow::tabStripProc(HWND hwnd, UINT message, WPARAM wPa
       TrackMouseEvent(&track);
 
       POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-      const int count = TabStrip_GetItemCount(hwnd);
+      std::vector<TabLayout> layouts;
       bool overClose = false;
-      for (int i = 0; i < count && !overClose; ++i) {
-        RECT itemRect{};
-        if (!TabStrip_GetItemRect(hwnd, i, &itemRect)) continue;
-        if (!PtInRect(&itemRect, point)) continue;
-        RECT closeRect{itemRect.right - kTabCloseBox - kGap, itemRect.top, itemRect.right - kGap,
-                       itemRect.bottom};
-        overClose = PtInRect(&closeRect, point);
+      if (self->layoutTabs(&layouts)) {
+        for (size_t i = 0; i < layouts.size() && !overClose; ++i) {
+          if (!PtInRect(&layouts[i].bounds, point)) continue;
+          overClose = PtInRect(&layouts[i].closeBox, point);
+        }
       }
       SetCursor(LoadCursorW(nullptr, overClose ? IDC_HAND : IDC_ARROW));
       return 0;
     }
 
+    case WM_MOUSELEAVE:
+      SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+      return 0;
+
+    case WM_SIZE:
+      InvalidateRect(hwnd, nullptr, FALSE);
+      return 0;
+
     default:
       break;
   }
 
-  return DefSubclassProc(hwnd, message, wParam, lParam);
+  return DefWindowProcW(hwnd, message, wParam, lParam);
 }
 
 LRESULT CALLBACK BrowserWindow::addressBarProc(HWND hwnd, UINT message, WPARAM wParam,
@@ -1054,74 +1129,6 @@ LRESULT BrowserWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam)
       return 0;
     }
 
-    case WM_NOTIFY: {
-      // NM_CUSTOMDRAW is delivered to the parent, so the owner-drawn tab strip
-      // is painted from here rather than from the control subclass.
-      NMHDR* header = reinterpret_cast<NMHDR*>(lParam);
-      if (header->idFrom != kIdTabStrip || header->code != NM_CUSTOMDRAW) return 0;
-
-      NMTABCTRL* draw = reinterpret_cast<NMTABCTRL*>(lParam);
-      if (draw->nmcd.dwDrawStage == NMCDS_PREPAINT) return CDRF_NOTIFYITEMDRAW;
-      if (draw->nmcd.dwDrawStage != NMCDS_ITEMPREPAINT) return CDRF_DODEFAULT;
-
-      const int index = static_cast<int>(draw->nmcd.dwItemSpec);
-      const bool selected = (draw->nmcd.uItemState & CDIS_SELECTED) != 0;
-      const bool active = index == currentIndex();
-
-      RECT rect = draw->nmcd.rc;
-      HDC dc = draw->nmcd.hdc;
-
-      const HBRUSH background =
-          CreateSolidBrush(active ? RGB(255, 255, 255) : RGB(226, 226, 226));
-      if (background) {
-        FillRect(dc, &rect, background);
-        DeleteObject(background);
-      }
-
-      if (selected) {
-        RECT accent = rect;
-        accent.bottom = accent.top + 2;
-        const HBRUSH bar = CreateSolidBrush(RGB(31, 136, 61));
-        if (bar) {
-          FillRect(dc, &accent, bar);
-          DeleteObject(bar);
-        }
-      }
-
-      // Label, clipped so it never runs under the close box.
-      Tab* tab =
-          (index >= 0 && index < static_cast<int>(tabs_.size())) ? tabs_[index].get() : nullptr;
-      std::wstring label = tab != nullptr ? widen(tab->label()) : std::wstring();
-      if (label.empty()) label = L"New Tab";
-
-      RECT textRect = rect;
-      textRect.left += kTabPadLeft;
-      textRect.right -= kTabPadRight;
-      DrawTextW(dc, label.c_str(), -1, &textRect,
-                DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
-
-      // Close box: an X on the active tab, a dash otherwise.
-      const RECT closeRect{rect.right - kTabCloseBox - kGap, rect.top, rect.right - kGap,
-                           rect.bottom};
-      HPEN pen = CreatePen(PS_SOLID, 1, RGB(96, 96, 96));
-      HGDIOBJ oldPen = SelectObject(dc, pen);
-      if (active) {
-        const int midX = (closeRect.left + closeRect.right) / 2;
-        const int midY = (closeRect.top + closeRect.bottom) / 2;
-        MoveToEx(dc, midX - 3, midY - 3, nullptr);
-        LineTo(dc, midX + 3, midY + 3);
-        MoveToEx(dc, midX + 3, midY - 3, nullptr);
-        LineTo(dc, midX - 3, midY + 3);
-      } else {
-        const int midY = (closeRect.top + closeRect.bottom) / 2;
-        MoveToEx(dc, closeRect.left + 2, midY, nullptr);
-        LineTo(dc, closeRect.right - 2, midY);
-      }
-      SelectObject(dc, oldPen);
-      DeleteObject(pen);
-
-      return CDRF_SKIPDEFAULTDRAW;
-    }
 
     case WM_CTLCOLORSTATIC:
       SetBkMode(reinterpret_cast<HDC>(wParam), TRANSPARENT);

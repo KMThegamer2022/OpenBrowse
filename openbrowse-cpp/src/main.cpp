@@ -95,11 +95,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int showCommand) {
     return 1;
   }
 
-  INITCOMMONCONTROLSEX controls{};
-  controls.dwSize = sizeof(controls);
-  controls.dwICC = ICC_TAB_CLASSES | ICC_STANDARD_CLASSES;
-  InitCommonControlsEx(&controls);
-
   ob::ensureRuntimeDirectories();
 
   ob::SettingsStore settingsStore(ob::settingsPath());

@@ -85,7 +85,6 @@ add_executable(OpenBrowse WIN32
 target_include_directories(OpenBrowse PRIVATE src)
 target_link_libraries(OpenBrowse PRIVATE
   OpenBrowseWebView2
-  comctl32
   comdlg32
   shell32
   ole32

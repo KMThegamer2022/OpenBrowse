@@ -3,11 +3,8 @@
 
 #include "build_config.h"
 
-// windows.h has to come first: commctrl.h relies on the base types.
 #include <windows.h>
 #include <wrl.h>
-
-#include <commctrl.h>
 
 #include <memory>
 #include <string>
@@ -81,12 +78,18 @@ class BrowserWindow {
 
  private:
   static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
-  static LRESULT CALLBACK tabStripProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
-                                       UINT_PTR id, DWORD_PTR refData);
+  static LRESULT CALLBACK tabStripProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
   static LRESULT CALLBACK addressBarProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
                                          UINT_PTR id, DWORD_PTR refData);
 
   LRESULT handleMessage(UINT message, WPARAM wParam, LPARAM lParam);
+
+  // Geometry of one tab, shared by the painter and the hit test.
+  struct TabLayout {
+    RECT bounds{};
+    RECT closeBox{};
+  };
+  bool layoutTabs(std::vector<TabLayout>* out) const;
 
   void buildMenu();
   void createControls();
@@ -96,7 +99,7 @@ class BrowserWindow {
   void closeTabAt(int index);
   void closeTabObject(Tab* tab);
   int indexOfTab(Tab* tab) const;
-  int currentIndex() const;
+  int currentIndex() const { return activeTab_; }
   Tab* currentTab() const;
   void setCurrentIndex(int index);
   void showCurrentTab();
@@ -104,7 +107,6 @@ class BrowserWindow {
   void updateAddressBar();
   void updateNavigationButtons();
   void updateTabStrip();
-  void rebuildTabIcons();
   void updateWindowTitle();
   void setStatus(const std::string& text);
   void setProgress(int percent);  // negative hides the bar
@@ -159,8 +161,8 @@ class BrowserWindow {
   HistoryStore historyStore_;
   std::vector<HistoryEntry> history_;
   std::vector<ActiveDownload> downloads_;
-  Microsoft::WRL::ComPtr<IImageList> tabImageList_;
 
+  int activeTab_ = -1;
   int progress_ = -1;
   bool suppressAddressBarEvents_ = false;
   bool refreshingSettings_ = false;

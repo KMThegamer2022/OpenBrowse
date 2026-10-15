@@ -79,8 +79,7 @@ class BrowserWindow {
  private:
   static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
   static LRESULT CALLBACK tabStripProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
-  static LRESULT CALLBACK addressBarProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
-                                         UINT_PTR id, DWORD_PTR refData);
+  static LRESULT CALLBACK addressBarProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 
   LRESULT handleMessage(UINT message, WPARAM wParam, LPARAM lParam);
 

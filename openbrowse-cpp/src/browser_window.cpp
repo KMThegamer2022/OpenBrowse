@@ -14,7 +14,6 @@ namespace {
 
 constexpr wchar_t kWindowClassName[] = L"OpenBrowseMainWindow";
 constexpr wchar_t kTabStripClassName[] = L"OpenBrowseTabStrip";
-constexpr UINT_PTR kSubclassId = 1;
 
 constexpr int kNavHeight = 30;
 constexpr int kTabStripHeight = 32;
@@ -166,9 +165,11 @@ void BrowserWindow::createControls() {
   addressBar_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
                                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL, 0, 0, 0, 0,
                                 hwnd_, reinterpret_cast<HMENU>(kIdAddressBar), instance_, nullptr);
-  // An edit control reports no WM_COMMAND, so Enter is caught by a subclass.
-  SetWindowSubclass(addressBar_, &BrowserWindow::addressBarProc, kSubclassId,
-                     reinterpret_cast<DWORD_PTR>(this));
+  // An edit control reports no WM_COMMAND, so Enter is caught by replacing the
+  // window procedure. This avoids ComCtl32, the rest of which this window
+  // no longer uses.
+  SetWindowLongPtrW(addressBar_, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+  SetWindowLongPtrW(addressBar_, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&BrowserWindow::addressBarProc));
 
   registerTabStripClass();
 
@@ -1087,15 +1088,15 @@ LRESULT CALLBACK BrowserWindow::tabStripProc(HWND hwnd, UINT message, WPARAM wPa
 }
 
 LRESULT CALLBACK BrowserWindow::addressBarProc(HWND hwnd, UINT message, WPARAM wParam,
-                                                LPARAM lParam, UINT_PTR id, DWORD_PTR refData) {
-  BrowserWindow* self = reinterpret_cast<BrowserWindow*>(refData);
-  if (self == nullptr) return DefSubclassProc(hwnd, message, wParam, lParam);
+                                                LPARAM lParam) {
+  BrowserWindow* self = reinterpret_cast<BrowserWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+  if (self == nullptr) return DefWindowProcW(hwnd, message, wParam, lParam);
 
   if (message == WM_KEYDOWN && wParam == VK_RETURN) {
     self->loadFromAddressBar();
     return 0;
   }
-  return DefSubclassProc(hwnd, message, wParam, lParam);
+  return DefWindowProcW(hwnd, message, wParam, lParam);
 }
 
 // ---------------------------------------------------------------------------

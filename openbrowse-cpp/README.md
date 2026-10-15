@@ -115,6 +115,7 @@ wrote, so preferences carry over.
 
 | File | Role |
 | --- | --- |
+| `src/build_config.h` | `UNICODE` and the SDK version macros, set before any Windows header |
 | `src/url_utils.hpp` | Address bar heuristics, URL normalisation |
 | `src/json.hpp` | Small dependency-free JSON reader and writer |
 | `src/settings.hpp` | INI-backed preferences |
@@ -124,6 +125,24 @@ wrote, so preferences carry over.
 | `src/tab.*` | One WebView2 controller, its events and lifetime |
 | `src/browser_window.*` | Native Win32 chrome, tab strip, downloads |
 | `src/main.cpp` | WebView2 environment and the message loop |
+
+### Two things that will bite you
+
+**Do not define `WIN32_LEAN_AND_MEAN` before including `WebView2.h`.** It makes
+`windows.h` skip the headers that declare the `interface` keyword macro, and
+`WebView2.h` only includes `rpc.h`/`rpcndr.h`, so `interface` never becomes
+available and every typedef in that header fails to parse. The symptom is a wall
+of `C2146: syntax error: missing ';' before identifier 'ICoreWebView2'` pointing
+into the SDK header rather than at your own code.
+
+**The tab strip is drawn by hand, not with `WC_TABCONTROL`.** `TCIFIMAGE`,
+`TabStrip_*`, `NMTABCTRL`, `NMCDS_*` and `CDRF_*` are absent from the Windows SDK
+headers on the build machine, and no combination of `_WIN32_WINNT` and
+`NTDDI_VERSION` brings them back. The strip is an ordinary child window;
+`BrowserWindow::layoutTabs` computes the geometry shared by the painter and the
+hit test. As a consequence the project links no common controls at all, and the
+address bar is subclassed by replacing its window procedure rather than with
+`SetWindowSubclass`.
 
 ### The settings page
 

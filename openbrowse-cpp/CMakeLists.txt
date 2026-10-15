@@ -5,6 +5,11 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Link the C runtime statically (/MT). The default /MD makes the executable
+# depend on MSVCP140.dll and VCRUNTIME140.dll, which are not present on a clean
+# or locked-down machine and cannot be assumed on a managed fleet.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 if(NOT WIN32)
   # The application targets the Windows-only WebView2 runtime, but the
   # portable half (JSON, URL heuristics, settings, history) is host agnostic

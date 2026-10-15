@@ -92,6 +92,10 @@ target_link_libraries(OpenBrowse PRIVATE
   uuid
 )
 
+# The application is written entirely against the wide-character API, and
+# IDC_ARROW & friends only resolve to the W variants when UNICODE is defined.
+target_compile_definitions(OpenBrowse PRIVATE UNICODE _UNICODE NOMINMAX)
+
 if(MSVC)
   target_compile_options(OpenBrowse PRIVATE /W4 /permissive- /utf-8 /EHsc)
   # WebView2 headers trip these; they are not defects in this code.

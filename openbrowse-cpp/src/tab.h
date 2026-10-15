@@ -18,6 +18,7 @@
 namespace ob {
 
 class BrowserWindow;
+class Tab;
 
 enum class TabKind { Browser, Settings };
 

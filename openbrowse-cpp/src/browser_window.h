@@ -128,7 +128,8 @@ class BrowserWindow {
   void sendStatusTo(Tab* tab, const std::string& text, const std::string& level);
   void handleSettingsAction(Tab* tab, const std::string& message);
 
-  void onDownloadCompleted(ICoreWebView2DownloadOperation* operation);
+  void onDownloadCompleted(ICoreWebView2DownloadOperation* operation,
+                           COREWEBVIEW2_DOWNLOAD_STATE state);
 
   HINSTANCE instance_ = nullptr;
   HWND hwnd_ = nullptr;

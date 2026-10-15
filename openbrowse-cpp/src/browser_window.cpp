@@ -720,12 +720,19 @@ void BrowserWindow::clearBrowsingData(bool history, bool cookies, bool cache) {
   ComPtr<ICoreWebView2Profile> profile;
   if (FAILED(tab->controller()->get_Profile(&profile)) || profile == nullptr) return;
 
-  COREWEBVIEW2_BROWSING_DATA_KINDS kinds = COREWEBVIEW2_BROWSING_DATA_KINDS_NONE;
-  if (cookies) kinds |= COREWEBVIEW2_BROWSING_DATA_KINDS_COOKIES;
-  if (cache) kinds |= COREWEBVIEW2_BROWSING_DATA_KINDS_CACHE;
-  if (kinds == COREWEBVIEW2_BROWSING_DATA_KINDS_NONE) return;
+  // ClearBrowsingData lives on ICoreWebView2Profile2, not ICoreWebView2Profile.
+  ComPtr<ICoreWebView2Profile2> profile2;
+  if (FAILED(profile.As(&profile2)) || profile2 == nullptr) {
+    setStatus("Clearing cookies and cache needs a newer WebView2 runtime");
+    return;
+  }
 
-  profile->ClearBrowsingData(kinds, nullptr);
+  COREWEBVIEW2_BROWSING_DATA_KINDS kinds = COREWEBVIEW2_BROWSING_DATA_KINDS(0);
+  if (cookies) kinds |= COREWEBVIEW2_BROWSING_DATA_KINDS_COOKIES;
+  if (cache) kinds |= COREWEBVIEW2_BROWSING_DATA_KINDS_DISK_CACHE;
+  if (kinds == COREWEBVIEW2_BROWSING_DATA_KINDS(0)) return;
+
+  profile2->ClearBrowsingData(kinds, nullptr);
 }
 
 void BrowserWindow::applyPreferences(const AppSettings& updated, bool restartNeeded) {
@@ -864,43 +871,56 @@ void BrowserWindow::onDownloadStarting(Tab* tab, ICoreWebView2DownloadStartingEv
   ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
 
   if (!GetSaveFileNameW(&ofn)) {
-    args->Cancel();
+    args->put_Cancel(TRUE);
     setStatus("Download cancelled");
     return;
   }
 
-  const std::string chosen = narrow(fileBuffer);
-  args->put_ResultFilePath(widen(chosen).c_str());
+  args->put_ResultFilePath(widen(narrow(fileBuffer)).c_str());
+  // We choose the destination and report progress ourselves.
+  args->put_Handled(TRUE);
 
   ActiveDownload record;
   record.fileName = fileName;
-  if (FAILED(args->get_Operation(&record.operation))) record.operation.Reset();
+  if (FAILED(args->get_DownloadOperation(&record.operation)) || !record.operation) {
+    setStatus("Download could not be started");
+    return;
+  }
 
-  args->add_Completed(Callback<ICoreWebView2DownloadCompletedEventHandler>(
-                         [this](ICoreWebView2DownloadOperation* operation, HRESULT hr)
-                             -> HRESULT {
-                           onDownloadCompleted(operation);
-                           return S_OK;
-                         })
-                         .Get());
-  args->Resume();
+  // There is no Completed event on the starting arguments, so completion is
+  // tracked through the operation's state instead.
+  ComPtr<ICoreWebView2DownloadOperation> operation = record.operation;
+  BrowserWindow* self = this;
+  operation->add_StateChanged(
+      Callback<ICoreWebView2StateChangedEventHandler>(
+          [self, operation](ICoreWebView2DownloadOperation* sender, IUnknown* /*args*/)
+              -> HRESULT {
+            COREWEBVIEW2_DOWNLOAD_STATE state = COREWEBVIEW2_DOWNLOAD_STATE_IN_PROGRESS;
+            if (FAILED(sender->get_State(&state))) return S_OK;
+            if (state == COREWEBVIEW2_DOWNLOAD_STATE_IN_PROGRESS) return S_OK;
+            self->onDownloadCompleted(operation.Get(), state);
+            return S_OK;
+          })
+          .Get(),
+      nullptr);
 
   downloads_.push_back(record);
   setStatus("Downloading: " + fileName);
 }
 
-void BrowserWindow::onDownloadCompleted(ICoreWebView2DownloadOperation* operation) {
+void BrowserWindow::onDownloadCompleted(ICoreWebView2DownloadOperation* operation,
+                                        COREWEBVIEW2_DOWNLOAD_STATE state) {
   for (size_t i = 0; i < downloads_.size(); ++i) {
     if (downloads_[i].operation.Get() == operation) {
-      setStatus("Downloaded: " + downloads_[i].fileName);
+      const bool completed = state == COREWEBVIEW2_DOWNLOAD_STATE_COMPLETED;
+      setStatus(completed ? "Downloaded: " + downloads_[i].fileName
+                          : "Download interrupted: " + downloads_[i].fileName);
       downloads_.erase(downloads_.begin() + static_cast<ptrdiff_t>(i));
       return;
     }
   }
-  setStatus("Download finished");
 }
 
-// ---------------------------------------------------------------------------
 // Tab strip subclass: owner draw, click to select, click the box to close
 // ---------------------------------------------------------------------------
 

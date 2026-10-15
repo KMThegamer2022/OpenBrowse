@@ -92,9 +92,18 @@ target_link_libraries(OpenBrowse PRIVATE
   uuid
 )
 
-# The application is written entirely against the wide-character API, and
-# IDC_ARROW & friends only resolve to the W variants when UNICODE is defined.
-target_compile_definitions(OpenBrowse PRIVATE UNICODE _UNICODE NOMINMAX)
+# UNICODE: the code only calls the wide-character API, and IDC_ARROW & friends
+#   resolve to the W variants only when it is defined.
+# _WIN32_WINNT/WINVER: commctrl.h hides the whole tab-control section
+#   (TCM_*, TabStrip_*, TCIF*, NMTABCTRL, CDRF_*) unless these are at least
+#   0x0500, so the control compiles as an empty header without them.
+target_compile_definitions(OpenBrowse PRIVATE
+  UNICODE
+  _UNICODE
+  NOMINMAX
+  WINVER=0x0A00
+  _WIN32_WINNT=0x0A00
+)
 
 if(MSVC)
   target_compile_options(OpenBrowse PRIVATE /W4 /permissive- /utf-8 /EHsc)

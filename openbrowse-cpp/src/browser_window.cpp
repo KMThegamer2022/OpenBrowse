@@ -71,8 +71,10 @@ bool BrowserWindow::create(HINSTANCE instance, int showCommand,
     registered = true;
   }
 
-  hwnd_ = CreateWindowExW(0, kWindowClassName, kAppName, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
-                          CW_USEDEFAULT, 1440, 920, nullptr, nullptr, instance, this);
+  const std::wstring appName = widen(std::string(kAppName));
+  hwnd_ = CreateWindowExW(0, kWindowClassName, appName.c_str(), WS_OVERLAPPEDWINDOW,
+                          CW_USEDEFAULT, CW_USEDEFAULT, 1440, 920, nullptr, nullptr, instance,
+                          this);
   if (hwnd_ == nullptr) return false;
 
   SetWindowLongPtrW(hwnd_, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
@@ -119,7 +121,7 @@ void BrowserWindow::buildMenu() {
 
   // Ctrl+T, Ctrl+W, Ctrl+,, Ctrl+Shift+K, Ctrl+L, Alt+Home, Alt+Left/Right,
   // F5, F11, F12, Alt+F4, Escape (leaves full screen).
-  static const WORD kAccels[] = {
+  WORD kAccels[] = {
       FVIRTKEY, static_cast<WORD>(VK_CONTROL), 'T',
       FVIRTKEY, static_cast<WORD>(VK_CONTROL), 'W',
       FVIRTKEY, static_cast<WORD>(VK_CONTROL), VK_OEM_COMMA,
@@ -134,7 +136,8 @@ void BrowserWindow::buildMenu() {
       FVIRTKEY, static_cast<WORD>(VK_F4),      0,
       FVIRTKEY, static_cast<WORD>(VK_ESCAPE),  0,
       0};
-  accelerators_ = CreateAcceleratorTableW(kAccels, static_cast<int>(std::size(kAccels) - 1));
+  accelerators_ =
+      CreateAcceleratorTableW(reinterpret_cast<LPACCEL>(kAccels), static_cast<int>(std::size(kAccels) - 1));
 }
 
 void BrowserWindow::createControls() {
@@ -369,10 +372,14 @@ void BrowserWindow::updateTabStrip() {
     const std::string text =
         tab->kind() == TabKind::Settings ? std::string("Settings") : tab->label();
 
+    std::vector<wchar_t> label =
+        widen(text.empty() ? std::string("New Tab") : text);
+    label.push_back(L'\0');
+
     TCITEMW item{};
     item.mask = TCIF_TEXT | TCIFIMAGE;
     item.iImage = -1;
-    item.pszText = widen(text.empty() ? std::string("New Tab") : text).c_str();
+    item.pszText = label.data();
     TabStrip_InsertItem(tabStrip_, static_cast<int>(i), &item);
   }
 
@@ -392,7 +399,7 @@ void BrowserWindow::rebuildTabIcons() {
   for (size_t i = 0; i < tabIcons_.size(); ++i) {
     int index = -1;
     if (tabIcons_[i] != nullptr) {
-      index = ImageList_Add(tabImageList_.Get(), tabIcons_[i]);
+      index = ImageList_Add(tabImageList_.Get(), tabIcons_[i], nullptr, 0);
     }
     TCITEMW item{};
     item.mask = TCIFIMAGE;
@@ -404,7 +411,7 @@ void BrowserWindow::rebuildTabIcons() {
 void BrowserWindow::updateWindowTitle() {
   Tab* tab = currentTab();
   if (tab == nullptr) {
-    SetWindowTextW(hwnd_, kAppName);
+    SetWindowTextW(hwnd_, widen(std::string(kAppName)).c_str());
     return;
   }
   if (tab->kind() == TabKind::Settings) {
@@ -718,8 +725,12 @@ void BrowserWindow::clearBrowsingData(bool history, bool cookies, bool cache) {
   Tab* tab = currentTab();
   if (tab == nullptr || tab->controller() == nullptr) return;
 
+  if (tab->webview() == nullptr) return;
+  ComPtr<ICoreWebView2_13> webview13;
+  if (FAILED(tab->webview()->QueryInterface(IID_PPV_ARGS(&webview13))) || !webview13) return;
+
   ComPtr<ICoreWebView2Profile> profile;
-  if (FAILED(tab->controller()->get_Profile(&profile)) || profile == nullptr) return;
+  if (FAILED(webview13->get_Profile(&profile)) || profile == nullptr) return;
 
   // ClearBrowsingData lives on ICoreWebView2Profile2, not ICoreWebView2Profile.
   ComPtr<ICoreWebView2Profile2> profile2;
@@ -1091,8 +1102,8 @@ LRESULT BrowserWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam)
       // Close box: an X on the active tab, a dash otherwise.
       const RECT closeRect{rect.right - kTabCloseBox - kGap, rect.top, rect.right - kGap,
                            rect.bottom};
-      const HPEN pen = CreatePen(PS_SOLID, 1, RGB(96, 96, 96));
-      const HPEN oldPen = SelectObject(dc, pen);
+      HPEN pen = CreatePen(PS_SOLID, 1, RGB(96, 96, 96));
+      HGDIOBJ oldPen = SelectObject(dc, pen);
       if (active) {
         const int midX = (closeRect.left + closeRect.right) / 2;
         const int midY = (closeRect.top + closeRect.bottom) / 2;

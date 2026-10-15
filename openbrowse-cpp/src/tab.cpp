@@ -172,7 +172,12 @@ void Tab::applyWebSettings() {
   // not a per-page setting.
   ComPtr<ICoreWebView2Controller2> controller2;
   if (SUCCEEDED(st_->controller.As(&controller2)) && controller2) {
-    controller2->put_DefaultBackgroundColor(RGB(255, 255, 255));
+    COREWEBVIEW2_COLOR white{};
+    white.A = 255;
+    white.R = 255;
+    white.G = 255;
+    white.B = 255;
+    controller2->put_DefaultBackgroundColor(white);
     st_->controller2 = controller2;
   }
 
@@ -467,12 +472,15 @@ void Tab::reload() {
 }
 
 void Tab::stop() {
-  // TrySuspend arrived on ICoreWebView2_3, and returns false while a navigation
-  // is already committed, which is harmless.
+  // TrySuspend arrived on ICoreWebView2_3 and needs a completion handler; it
+  // fails when a navigation is already committed, which is harmless.
   ComPtr<ICoreWebView2_3> webview3;
-  if (st_->webview && SUCCEEDED(st_->webview.As(&webview3)) && webview3) {
-    webview3->TrySuspend();
-  }
+  if (st_->webview == nullptr) return;
+  if (FAILED(st_->webview.As(&webview3)) || !webview3) return;
+
+  webview3->TrySuspend(
+      Callback<ICoreWebView2TrySuspendCompletedHandler>([](HRESULT) -> HRESULT { return S_OK; })
+          .Get());
 }
 
 void Tab::openDevTools() {

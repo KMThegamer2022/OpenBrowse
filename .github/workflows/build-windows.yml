@@ -33,8 +33,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install CMake
-        uses: lukka/get-cmake@v2
+      # CMake and nuget.exe are already present on windows-2022 runners, and
+      # installing CMake via a third-party action pulls a stale 3.17.
+      - name: Show toolchain versions
+        shell: pwsh
+        run: |
+          cmake --version
+          nuget help | Select-Object -First 1
 
       - name: Install NuGet
         uses: NuGet/setup-nuget@v2
@@ -79,7 +84,6 @@ jobs:
         working-directory: openbrowse-cpp
     steps:
       - uses: actions/checkout@v4
-      - uses: lukka/get-cmake@v2
       - uses: NuGet/setup-nuget@v2
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build --config Release --parallel

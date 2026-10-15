@@ -15,15 +15,22 @@
 #define NOMINMAX
 #endif
 
-// commctrl.h compiles the whole tab-control section - TCM_*, TabStrip_*,
-// TCIF*, NMTABCTRL, NMCDS_* and CDRF_* - only when _WIN32_WINNT and WINVER
-// are at least 0x0500. Without these the header is effectively empty for the
-// control this browser is built around.
+// Target Windows 10. commctrl.h compiles the whole tab-control section -
+// TCM_*, TabStrip_*, TCIF*, NMTABCTRL - only when the SDK version macros say so,
+// and without this the control that the whole browser is built around compiles
+// as an empty header.
 #ifndef _WIN32_WINNT
-#define _WIN32_WINNT 0x0A00  // Windows 10
+#define _WIN32_WINNT 0x0A00
 #endif
 #ifndef WINVER
 #define WINVER 0x0A00
+#endif
+
+// The SDK headers gate on NTDDI_VERSION rather than _WIN32_WINNT directly, so
+// it has to be set as well. sdkddkver.h supplies the NTDDI_* constants.
+#ifndef NTDDI_VERSION
+#include <sdkddkver.h>
+#define NTDDI_VERSION NTDDI_WIN10
 #endif
 
 // WIN32_LEAN_AND_MEAN must NOT be defined before including WebView2.h: it

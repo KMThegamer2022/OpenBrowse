@@ -60,6 +60,17 @@ std::wstring buildBrowserArguments(const ob::AppSettings& settings) {
   return joined;
 }
 
+// Append a startup milestone. Cheap enough to leave on permanently: it is the
+// only evidence available when the browser dies before a window appears.
+void logStartup(const std::string& line) {
+  try {
+    ob::ensureRuntimeDirectories();
+    std::ofstream out(ob::logPath(), std::ios::app);
+    if (out) out << line << "\n";
+  } catch (...) {
+  }
+}
+
 void writeStartupError(const std::string& message) {
   try {
     ob::ensureRuntimeDirectories();
@@ -96,9 +107,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int showCommand) {
   }
 
   ob::ensureRuntimeDirectories();
+  logStartup("OpenBrowse starting, build " __DATE__ " " __TIME__);
 
   ob::SettingsStore settingsStore(ob::settingsPath());
   const ob::AppSettings settings = settingsStore.load();
+  logStartup("settings loaded; home=" + settings.homeUrl +
+             " smooth=" + (settings.smoothScrollingEnabled ? "1" : "0") +
+             " js=" + (settings.javascriptEnabled ? "1" : "0") +
+             " gpu=" + (settings.hardwareAccelerationEnabled ? "1" : "0"));
+  logStartup("browser arguments: " + ob::narrow(buildBrowserArguments(settings)));
 
   ComPtr<ICoreWebView2EnvironmentOptions> options =
       Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>();
@@ -113,6 +130,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int showCommand) {
   // Created before the environment so it outlives the completion callback.
   auto window = std::make_unique<ob::BrowserWindow>();
   auto failure = std::make_shared<std::string>();
+  bool windowLogged = false;
 
   const HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(
       nullptr, ob::widen(ob::webViewUserDataFolder()).c_str(), options.Get(),
@@ -124,14 +142,19 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int showCommand) {
               *failure = ob::describeHresult(result);
               return S_OK;
             }
+            logStartup(std::string("environment ready: ") + ob::describeHresult(result));
             if (!window->create(instance, showCommand, environment)) {
               *failure = "the main window could not be created.";
+              logStartup("FATAL: main window creation returned false");
               return S_OK;
             }
+            logStartup("main window created and shown");
             return S_OK;
           })
           .Get());
 
+  logStartup(std::string("CreateCoreWebView2EnvironmentWithOptions hr=") +
+             ob::describeHresult(hr));
   if (FAILED(hr)) {
     reportStartupFailure(ob::describeHresult(hr));
     CoUninitialize();
@@ -141,6 +164,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int showCommand) {
   MSG message;
   BOOL result = 0;
   while ((result = GetMessageW(&message, nullptr, 0, 0)) > 0) {
+    if (window->hwnd() == nullptr && !windowLogged) {
+      windowLogged = true;
+      logStartup("first message delivered, window created");
+    }
     // Menu commands already arrive as WM_COMMAND, so only the accelerator
     // table needs translating here.
     if (window->hwnd() != nullptr &&
@@ -151,6 +178,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int showCommand) {
     DispatchMessageW(&message);
   }
 
+  logStartup("message loop ended");
   window.reset();
 
   if (!failure->empty()) {

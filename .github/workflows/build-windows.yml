@@ -53,6 +53,36 @@ jobs:
       - name: Test the portable layer
         run: ctest --test-dir build -C Release --output-on-failure
 
+      - name: Smoke test the executable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          $exe = (Resolve-Path "build/Release/OpenBrowse.exe").Path
+          $log = Join-Path $env:LOCALAPPDATA "OpenBrowse\startup-error.log"
+          if (Test-Path $log) { Remove-Item $log -Force }
+
+          $p = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 20
+          $p.Refresh()
+
+          if ($p.HasExited) {
+            Write-Host "RESULT: process EXITED with code $($p.ExitCode)"
+          } else {
+            Write-Host "RESULT: process still running"
+            Write-Host "  MainWindowHandle: $($p.MainWindowHandle)"
+            Write-Host "  MainWindowTitle : '$($p.MainWindowTitle)'"
+            Write-Host "  Threads         : $($p.Threads.Count)"
+            Write-Host "  WorkingSet      : $((Get-Process -Id $p.Id).WorkingSet64)"
+          }
+
+          Write-Host "=== startup log ==="
+          if (Test-Path $log) { Get-Content $log } else { Write-Host "(no log written)" }
+
+          Stop-Process -Name OpenBrowse -Force -ErrorAction SilentlyContinue
+          exit 0
+
       - name: Collect the executable
         shell: pwsh
         run: |

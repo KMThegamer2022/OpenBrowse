@@ -1,24 +1,34 @@
 name: Build OpenBrowse
 
-# Produces a single native OpenBrowse.exe. No Python, no scripts, no runtime
-# installer needed on the target machine beyond the WebView2 Runtime that
-# already ships with Windows 11 and Windows 10 21H2+.
+# Compiles the native C++ build in openbrowse-cpp/ into a single
+# OpenBrowse.exe. No Python, no scripts, and no runtime installer beyond the
+# WebView2 Runtime that already ships with Windows 11 and Windows 10 21H2+.
 
 on:
   push:
     branches: [main]
     paths:
-      - "**/src/**"
-      - "**/CMakeLists.txt"
+      - "openbrowse-cpp/src/**"
+      - "openbrowse-cpp/CMakeLists.txt"
       - ".github/workflows/build-windows.yml"
   pull_request:
+    paths:
+      - "openbrowse-cpp/**"
+      - ".github/workflows/build-windows.yml"
   workflow_dispatch:
+
+env:
+  PROJECT_DIR: openbrowse-cpp
 
 jobs:
   build:
     runs-on: windows-2022
     permissions:
       contents: write
+
+    defaults:
+      run:
+        working-directory: openbrowse-cpp
 
     steps:
       - uses: actions/checkout@v4
@@ -43,16 +53,19 @@ jobs:
         run: |
           $exe = "build/Release/OpenBrowse.exe"
           if (-not (Test-Path $exe)) { throw "OpenBrowse.exe was not produced" }
-          Get-FileHash $exe -Algorithm SHA256 | Format-List
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
+          $size = (Get-Item $exe).Length
+          Write-Host "OpenBrowse.exe  $size bytes  SHA256 $hash"
           New-Item -ItemType Directory -Force -Path out | Out-Null
           Copy-Item $exe out/OpenBrowse.exe
           Compress-Archive -Path out/OpenBrowse.exe -DestinationPath out/OpenBrowse-win64.zip -Force
+          "OpenBrowse.exe built successfully ($size bytes, SHA256 $hash)" | Out-File out/BUILD-INFO.txt
 
       - name: Publish the artifact
         uses: actions/upload-artifact@v4
         with:
           name: OpenBrowse-win64
-          path: out/OpenBrowse-win64.zip
+          path: openbrowse-cpp/out/
           if-no-files-found: error
 
   release:
@@ -61,13 +74,17 @@ jobs:
     runs-on: windows-2022
     permissions:
       contents: write
+    defaults:
+      run:
+        working-directory: openbrowse-cpp
     steps:
       - uses: actions/checkout@v4
       - uses: lukka/get-cmake@v2
       - uses: NuGet/setup-nuget@v2
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build --config Release --parallel
+      - run: ctest --test-dir build -C Release --output-on-failure
       - name: Attach the executable to the release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/Release/OpenBrowse.exe
+          files: openbrowse-cpp/build/Release/OpenBrowse.exe

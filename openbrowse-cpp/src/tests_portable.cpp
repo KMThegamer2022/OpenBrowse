@@ -26,7 +26,7 @@ void check(bool condition, const std::string& what) {
   ++gChecks;
   if (!condition) {
     ++gFailures;
-    std::cout << "  FAIL  " << what << "\n";
+    std::cout << "  FAIL  " << what << std::endl;
   }
 }
 
@@ -35,15 +35,19 @@ void checkEq(const std::string& actual, const std::string& expected, const std::
   if (actual != expected) {
     ++gFailures;
     std::cout << "  FAIL  " << what << "\n        expected: " << expected
-              << "\n        actual:   " << actual << "\n";
+              << "\n        actual:   " << actual << std::endl;
   }
 }
 
 const std::string kHome = ob::kDefaultHomeUrl;
 const std::string kSearch = ob::kDefaultSearchUrl;
 
+void section(const char* name) {
+  std::cout << name << std::endl;
+}
+
 void testUrlHeuristics() {
-  std::cout << "url heuristics\n";
+  section("url heuristics");
 
   checkEq(ob::ensureScheme("", kHome, kSearch), kHome, "empty input falls back to home");
   checkEq(ob::ensureScheme("   ", kHome, kSearch), kHome, "whitespace falls back to home");
@@ -95,7 +99,7 @@ void testUrlHeuristics() {
 }
 
 void testJson() {
-  std::cout << "json\n";
+  section("json");
 
   ob::json::Value parsed = ob::json::parse(R"([{"url":"https://a.com","title":"A & B","n":3}])");
   check(parsed.isArray(), "parses an array");
@@ -111,6 +115,7 @@ void testJson() {
   ob::json::Value again = ob::json::parse(text);
   checkEq(again.asArray()[0].str("title"), "A & B", "ampersand survives round trip");
 
+  section("json: escapes");
   ob::json::Object obj;
   obj["escaped"] = std::string("quote\" backslash\\ newline\n tab\t");
   std::string encoded = ob::json::serialize(ob::json::Value(obj));
@@ -132,14 +137,15 @@ void testJson() {
 }
 
 void testHistory() {
-  std::cout << "history\n";
+  section("history");
 
-  const std::string path = "/tmp/openbrowse_test_history.json";
+  const std::string path = "openbrowse_test_history.json";
   std::remove(path.c_str());
 
   ob::HistoryStore store(path);
   check(store.load().empty(), "missing file yields empty history");
 
+  section("history: record");
   std::vector<ob::HistoryEntry> entries;
   ob::HistoryStore::record(&entries, "https://a.com", "First");
   ob::HistoryStore::record(&entries, "https://b.com", "Second");
@@ -158,20 +164,21 @@ void testHistory() {
   ob::HistoryStore::record(&entries, "  ", "Blank");
   check(entries.size() == before, "non-http URLs are not recorded");
 
+  section("history: save/load");
   store.save(entries);
   std::vector<ob::HistoryEntry> reloaded = store.load();
   check(reloaded.size() == 2, "history persists across save/load");
   checkEq(reloaded[0].title, "Second, revisited", "title persists");
   check(!reloaded[0].visitedAt.empty(), "timestamp recorded");
 
-  // Cap at kHistoryLimit.
+  section("history: cap");
   std::vector<ob::HistoryEntry> many;
   for (size_t i = 0; i < ob::kHistoryLimit + 25; ++i) {
     ob::HistoryStore::record(&many, "https://site" + std::to_string(i) + ".com", "T");
   }
   check(many.size() == ob::kHistoryLimit, "history is capped at the limit");
 
-  // Corrupt files degrade to empty rather than throwing.
+  section("history: corrupt");
   {
     std::ofstream bad(path);
     bad << "{not json at all";
@@ -185,9 +192,9 @@ void testHistory() {
 }
 
 void testSettings() {
-  std::cout << "settings\n";
+  section("settings");
 
-  const std::string path = "/tmp/openbrowse_test_settings.ini";
+  const std::string path = "openbrowse_test_settings.ini";
   std::remove(path.c_str());
 
   ob::SettingsStore store(path);

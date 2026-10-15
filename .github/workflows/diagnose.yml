@@ -1,0 +1,86 @@
+name: Diagnose commctrl
+
+on: workflow_dispatch
+
+jobs:
+  probe:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Inspect commctrl.h guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          $hdr = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\Include" -Recurse -Filter commctrl.h -ErrorAction SilentlyContinue |
+                 Sort-Object FullName -Descending | Select-Object -First 1
+          Write-Host "commctrl.h: $($hdr.FullName)"
+          $lines = Get-Content $hdr.FullName
+          Write-Host "total lines: $($lines.Count)"
+
+          $idx = @()
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match 'TCIFIMAGE|define TabStrip_GetCurSel|NMTABCTRL\s*\{') { $idx += $i }
+          }
+          Write-Host "--- first match line numbers: $($idx[0..2] -join ', ') ---"
+          $start = [Math]::Max(0, $idx[0] - 30)
+          for ($i = $start; $i -le [Math]::Min($lines.Count - 1, $idx[0] + 2); $i++) {
+            "{0,6}: {1}" -f ($i + 1), $lines[$i]
+          }
+
+          Write-Host ""
+          Write-Host "--- NMTABCTRL / TCITEMW context ---"
+          $j = @()
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match 'NMTABCTRL') { $j += $i }
+          }
+          if ($j.Count -gt 0) {
+            $s2 = [Math]::Max(0, $j[0] - 12)
+            for ($i = $s2; $i -le [Math]::Min($lines.Count - 1, $j[0] + 3); $i++) {
+              "{0,6}: {1}" -f ($i + 1), $lines[$i]
+            }
+          } else {
+            Write-Host "NMTABCTRL NOT FOUND IN commctrl.h"
+          }
+
+          Write-Host ""
+          Write-Host "--- compile a probe through the project's build_config.h ---"
+          New-Item -ItemType Directory -Force -Path probe | Out-Null
+          @'
+          #include "build_config.h"
+          #include <windows.h>
+          #include <commctrl.h>
+          #ifndef TCIFIMAGE
+          #  pragma message("PROBE: TCIFIMAGE NOT defined")
+          #endif
+          #ifndef TabStrip_GetCurSel
+          #  pragma message("PROBE: TabStrip_GetCurSel NOT defined")
+          #endif
+          #ifndef NMTABCTRL
+          #  pragma message("PROBE: NMTABCTRL NOT defined")
+          #endif
+          #ifndef WC_TABCONTROLW
+          #  pragma message("PROBE: WC_TABCONTROLW NOT defined")
+          #endif
+          #pragma message("PROBE: _WIN32_WINNT=0x0A00 NTDDI=0x0A000000 set via build_config.h")
+          int main() { return 0; }
+          '@ | Set-Content probe/cc.cpp -Encoding UTF8
+          cmd /c "cl /nologo /EHsc /std:c++17 /I openbrowse-cpp/src probe/cc.cpp /c 2>&1"
+          Write-Host "--- exit=$LASTEXITCODE"
+
+          Write-Host ""
+          Write-Host "--- same probe WITHOUT build_config.h, forcing version macros on the command line ---"
+          @'
+          #include <windows.h>
+          #include <commctrl.h>
+          #ifndef TCIFIMAGE
+          #  pragma message("PROBE2: TCIFIMAGE NOT defined")
+          #endif
+          int main2() { return 0; }
+          '@ | Set-Content probe/cc2.cpp -Encoding UTF8
+          cmd /c "cl /nologo /EHsc /std:c++17 /D_WIN32_WINNT=0x0A00 /DWINVER=0x0A00 /DNTDDI_VERSION=0x0A000000 /I openbrowse-cpp/src probe/cc2.cpp /c 2>&1"
+          Write-Host "--- exit=$LASTEXITCODE"
+
+          exit 0

@@ -372,14 +372,15 @@ void BrowserWindow::updateTabStrip() {
     const std::string text =
         tab->kind() == TabKind::Settings ? std::string("Settings") : tab->label();
 
-    std::vector<wchar_t> label =
-        widen(text.empty() ? std::string("New Tab") : text);
-    label.push_back(L'\0');
+    std::wstring label = widen(text.empty() ? std::string("New Tab") : text);
 
     TCITEMW item{};
     item.mask = TCIF_TEXT | TCIFIMAGE;
     item.iImage = -1;
-    item.pszText = label.data();
+    // TCITEMW::pszText is a writable LPWSTR, so hand it a mutable buffer.
+    std::vector<wchar_t> labelBuffer(label.begin(), label.end());
+    labelBuffer.push_back(L'\0');
+    item.pszText = labelBuffer.data();
     TabStrip_InsertItem(tabStrip_, static_cast<int>(i), &item);
   }
 
@@ -395,7 +396,7 @@ void BrowserWindow::updateTabStrip() {
 
 void BrowserWindow::rebuildTabIcons() {
   if (tabImageList_ == nullptr) return;
-  ImageList_RemoveAll(tabImageList_);
+  ImageList_RemoveAll(tabImageList_.Get());
   for (size_t i = 0; i < tabIcons_.size(); ++i) {
     int index = -1;
     if (tabIcons_[i] != nullptr) {

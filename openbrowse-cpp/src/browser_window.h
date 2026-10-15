@@ -1,10 +1,8 @@
 // Main OpenBrowse window: native Win32 chrome around WebView2 tabs.
 #pragma once
 
-// WIN32_LEAN_AND_MEAN must NOT be defined before including WebView2.h: it
-// makes windows.h skip the headers that declare `interface`, and WebView2.h
-// only includes rpc.h/rpcndr.h, so the macro never becomes available and the
-// header fails to parse. Verified on MSVC 19.4x with SDK 1.0.2903.40.
+#include "build_config.h"
+
 // windows.h has to come first: commctrl.h relies on the base types.
 #include <windows.h>
 #include <wrl.h>

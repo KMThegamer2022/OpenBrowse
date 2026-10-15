@@ -1,0 +1,8 @@
+build/
+out/
+.vs/
+*.obj
+*.pdb
+*.ilk
+*.exe
+webview2/

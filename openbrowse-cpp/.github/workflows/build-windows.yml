@@ -1,0 +1,73 @@
+name: Build OpenBrowse
+
+# Produces a single native OpenBrowse.exe. No Python, no scripts, no runtime
+# installer needed on the target machine beyond the WebView2 Runtime that
+# already ships with Windows 11 and Windows 10 21H2+.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/src/**"
+      - "**/CMakeLists.txt"
+      - ".github/workflows/build-windows.yml"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CMake
+        uses: lukka/get-cmake@v2
+
+      - name: Install NuGet
+        uses: NuGet/setup-nuget@v2
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Test the portable layer
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Collect the executable
+        shell: pwsh
+        run: |
+          $exe = "build/Release/OpenBrowse.exe"
+          if (-not (Test-Path $exe)) { throw "OpenBrowse.exe was not produced" }
+          Get-FileHash $exe -Algorithm SHA256 | Format-List
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          Copy-Item $exe out/OpenBrowse.exe
+          Compress-Archive -Path out/OpenBrowse.exe -DestinationPath out/OpenBrowse-win64.zip -Force
+
+      - name: Publish the artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenBrowse-win64
+          path: out/OpenBrowse-win64.zip
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lukka/get-cmake@v2
+      - uses: NuGet/setup-nuget@v2
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build --config Release --parallel
+      - name: Attach the executable to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/Release/OpenBrowse.exe

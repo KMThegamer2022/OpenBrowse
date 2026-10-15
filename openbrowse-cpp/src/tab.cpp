@@ -481,9 +481,9 @@ void Tab::stop() {
   if (st_->webview == nullptr) return;
   if (FAILED(st_->webview.As(&webview3)) || !webview3) return;
 
-  webview3->TrySuspend(
-      Callback<ICoreWebView2TrySuspendCompletedHandler>([](HRESULT) -> HRESULT { return S_OK; })
-          .Get());
+  webview3->TrySuspend(Callback<ICoreWebView2TrySuspendCompletedHandler>(
+                           [](HRESULT, BOOL) -> HRESULT { return S_OK; })
+                           .Get());
 }
 
 void Tab::openDevTools() {

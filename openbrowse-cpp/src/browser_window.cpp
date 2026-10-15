@@ -680,12 +680,13 @@ void BrowserWindow::onTabNewWindowRequested(Tab* tab) {
 void BrowserWindow::onTabCloseRequested(Tab* tab) { closeTabObject(tab); }
 
 void BrowserWindow::onTabProcessFailed(Tab* tab, int failedKind) {
+  // Mirrors COREWEBVIEW2_PROCESS_FAILED_KIND.
   static const char* kNames[] = {
-      "Browser process exited",   "Render process exited",
-      "Frame render process exited", "Utility process exited",
-      "Sandbox helper process exited", "GPU process exited",
-      "PPAPI plugin process exited", "PPAPI broker process exited",
-      "Unknown process failed"};
+      "Browser process exited",       "Render process exited",
+      "Render process unresponsive",  "Frame render process exited",
+      "Utility process exited",       "Sandbox helper process exited",
+      "GPU process exited",           "PPAPI plugin process exited",
+      "PPAPI broker process exited",  "Unknown process exited"};
   const char* name = (failedKind >= 0 && failedKind < static_cast<int>(std::size(kNames)))
                          ? kNames[failedKind]
                          : "Process failed";

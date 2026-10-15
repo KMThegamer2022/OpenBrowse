@@ -14,7 +14,12 @@
 #include <string>
 #include <vector>
 
+#include <wrl/implements.h>
+
 #include "WebView2.h"
+// Supplies CoreWebView2EnvironmentOptions, the WRL class that carries the
+// user data folder and the Chromium command line.
+#include "WebView2EnvironmentOptions.h"
 
 #include "app_paths.hpp"
 #include "browser_window.h"
@@ -102,22 +107,22 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int showCommand) {
   ob::SettingsStore settingsStore(ob::settingsPath());
   const ob::AppSettings settings = settingsStore.load();
 
-  ComPtr<ICoreWebView2EnvironmentOptions> options;
-  HRESULT hr = CreateCoreWebView2EnvironmentOptions(
-      ob::widen(ob::webViewUserDataFolder()).c_str(), buildBrowserArguments(settings).c_str(),
-      &options);
-  if (FAILED(hr)) {
-    reportStartupFailure(ob::describeHresult(hr));
+  ComPtr<ICoreWebView2EnvironmentOptions> options =
+      Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>();
+  if (!options) {
+    reportStartupFailure("the WebView2 environment options could not be created.");
     CoUninitialize();
     return 1;
   }
+  options->put_AdditionalBrowserArguments(buildBrowserArguments(settings).c_str());
+
 
   // Created before the environment so it outlives the completion callback.
   auto window = std::make_unique<ob::BrowserWindow>();
   auto failure = std::make_shared<std::string>();
 
-  hr = CreateCoreWebView2EnvironmentWithOptions(
-      nullptr, options.Get(),
+  const HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(
+      nullptr, ob::widen(ob::webViewUserDataFolder()).c_str(), options.Get(),
       Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
           [&window, &failure, instance, showCommand](HRESULT result,
                                                     ICoreWebView2Environment* environment)

@@ -43,6 +43,10 @@ struct TabState {
   Microsoft::WRL::ComPtr<ICoreWebView2Controller> controller;
   Microsoft::WRL::ComPtr<ICoreWebView2> webview;
 
+  // Later WebView2 interfaces, kept so their events can be unwired.
+  Microsoft::WRL::ComPtr<ICoreWebView2_4> webview4;
+  Microsoft::WRL::ComPtr<ICoreWebView2Controller2> controller2;
+
   // Navigation queued while the controller was still being created.
   std::string pendingUrl;
   std::string pendingHtml;

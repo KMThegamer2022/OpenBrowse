@@ -168,8 +168,13 @@ void Tab::applyWebSettings() {
   webSettings->put_IsZoomControlEnabled(TRUE);
   webSettings->put_IsStatusBarEnabled(FALSE);
 
-  // Matches the Python build's white page background.
-  webSettings->put_DefaultBackgroundColor(RGB(255, 255, 255));
+  // The background colour is a controller property (ICoreWebView2Controller2),
+  // not a per-page setting.
+  ComPtr<ICoreWebView2Controller2> controller2;
+  if (SUCCEEDED(st_->controller.As(&controller2)) && controller2) {
+    controller2->put_DefaultBackgroundColor(RGB(255, 255, 255));
+    st_->controller2 = controller2;
+  }
 
   // Append the OpenBrowse marker to the default user agent.
   ComPtr<ICoreWebView2Settings2> webSettings2;
@@ -308,16 +313,19 @@ void Tab::wireEvents(const std::shared_ptr<TabState>& state) {
       &state->tokNewWindowRequested);
 
   // ---- Downloads -----------------------------------------------------------
-  webview->add_DownloadStarting(
-      Callback<ICoreWebView2DownloadStartingEventHandler>(
-          [state](ICoreWebView2* sender, ICoreWebView2DownloadStartingEventArgs* args)
-              -> HRESULT {
-            if (state->abandoned || state->owner == nullptr) return S_OK;
-            state->owner->onDownloadStarting(state->tab, args);
-            return S_OK;
-          })
-          .Get(),
-      &state->tokDownloadStarting);
+  // add_DownloadStarting arrived on ICoreWebView2_4.
+  if (SUCCEEDED(webview->QueryInterface(IID_PPV_ARGS(&state->webview4))) && state->webview4) {
+    state->webview4->add_DownloadStarting(
+        Callback<ICoreWebView2DownloadStartingEventHandler>(
+            [state](ICoreWebView2* sender, ICoreWebView2DownloadStartingEventArgs* args)
+                -> HRESULT {
+              if (state->abandoned || state->owner == nullptr) return S_OK;
+              state->owner->onDownloadStarting(state->tab, args);
+              return S_OK;
+            })
+            .Get(),
+        &state->tokDownloadStarting);
+  }
 
   // ---- Settings page bridge ------------------------------------------------
   webview->add_WebMessageReceived(
@@ -339,7 +347,7 @@ void Tab::wireEvents(const std::shared_ptr<TabState>& state) {
       Callback<ICoreWebView2ProcessFailedEventHandler>(
           [state](ICoreWebView2* sender, ICoreWebView2ProcessFailedEventArgs* args) -> HRESULT {
             if (state->abandoned || state->tab == nullptr || state->owner == nullptr) return S_OK;
-            COREWEBVIEW2_PROCESS_FAILED_KIND kind = COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXIT;
+            COREWEBVIEW2_PROCESS_FAILED_KIND kind = COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED;
             args->get_ProcessFailedKind(&kind);
             state->owner->onTabProcessFailed(state->tab, static_cast<int>(kind));
             return S_OK;
@@ -407,7 +415,7 @@ void Tab::unwireEvents() {
     webview->remove_ContentLoading(st_->tokContentLoading);
     webview->remove_SourceChanged(st_->tokSourceChanged);
     webview->remove_NewWindowRequested(st_->tokNewWindowRequested);
-    webview->remove_DownloadStarting(st_->tokDownloadStarting);
+    if (st_->webview4) st_->webview4->remove_DownloadStarting(st_->tokDownloadStarting);
     webview->remove_WebMessageReceived(st_->tokWebMessageReceived);
     webview->remove_ProcessFailed(st_->tokProcessFailed);
     webview->remove_WindowCloseRequested(st_->tokWindowCloseRequested);
@@ -419,6 +427,8 @@ void Tab::unwireEvents() {
   }
   // Closing the controller tears down the renderer for this tab.
   if (st_->controller) st_->controller->Close();
+  st_->webview4.Reset();
+  st_->controller2.Reset();
   st_->webview.Reset();
   st_->controller.Reset();
 }
@@ -457,9 +467,12 @@ void Tab::reload() {
 }
 
 void Tab::stop() {
-  // TrySuspend returns false while a navigation is already committed, which is
-  // harmless; there is nothing further to stop in that case.
-  if (st_->webview) st_->webview->TrySuspend();
+  // TrySuspend arrived on ICoreWebView2_3, and returns false while a navigation
+  // is already committed, which is harmless.
+  ComPtr<ICoreWebView2_3> webview3;
+  if (st_->webview && SUCCEEDED(st_->webview.As(&webview3)) && webview3) {
+    webview3->TrySuspend();
+  }
 }
 
 void Tab::openDevTools() {
